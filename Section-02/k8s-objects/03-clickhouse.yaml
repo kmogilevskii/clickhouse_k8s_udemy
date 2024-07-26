@@ -1,0 +1,87 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: clickhouse
+---
+apiVersion: "clickhouse.altinity.com/v1"
+kind: "ClickHouseInstallation"
+metadata:
+  name: clickhouse
+  namespace: clickhouse
+spec:
+  defaults:
+    templates: 
+      dataVolumeClaimTemplate: storage-vc-template
+      podTemplate: pod-clickhouse-template
+  configuration:
+    users:
+      udemy/password_sha256_hex: 583e17796e6a79e518b3b699d5fac2e9b758fea3904fed4937af0753e2c26759
+      # to allow access outside from kubernetes
+      udemy/networks/ip:
+        - 0.0.0.0/0
+        - ::/0
+      root/password_sha256_hex: 4d22027639244e1440b69a3d25f2df8d1b1363b520869b394d472e247b958eab
+      # root user can access only from localhost
+      root/networks/ip:
+        - ::1
+        - 127.0.0.1
+      # default quotas won't restrict the root user in terms of the resources consumed by the queries
+      root/quota: default
+      root/access_management: 1
+    zookeeper:
+        nodes:
+        # refer to the ClusterIP service of ZooKeeper
+        - host: zookeeper.zoons
+          port: 2181
+    clusters:
+      - name: "clickhouse"
+        layout:
+          shardsCount: 2
+          replicasCount: 2
+  templates:
+    podTemplates:
+      - name: pod-clickhouse-template
+        spec:
+          containers:
+          - name: clickhouse
+            image: altinity/clickhouse-server:22.3.15.34.altinitystable
+
+            resources:
+              requests:
+                memory: 1Gi
+                cpu: 1000m
+              limits:
+                memory: 2Gi
+                cpu: 1500m
+        
+          affinity:
+
+            podAntiAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                - labelSelector:
+                    matchExpressions:
+                      - key: "app"
+                        operator: In
+                        values:
+                          - clickhouse
+                  topologyKey: "kubernetes.io/hostname"
+
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                - matchExpressions:
+                  - key: "node.kubernetes.io/instance-type"
+                    operator: In
+                    values:
+                    - t3.large
+
+    volumeClaimTemplates:
+      - name: storage-vc-template
+        reclaimPolicy: Retain
+        spec:
+          storageClassName: ebs-sc
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 3Gi
